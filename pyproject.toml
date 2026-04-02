@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xdysim"
+version = "0.1.0"
+description = "Desktop TTRPG probability and combat simulator app"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.4.4",
+    "pydantic>=2.12.5",
+    "pyside6>=6.11.0",
+]
+
+[project.scripts]
+xdysim = "xdysim.app:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.151.10",
+    "pytest>=9.0.2",
+    "ruff>=0.15.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xdysim"]
+
+[tool.pytest.ini_options]
+addopts = "-ra -p no:cacheprovider"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "N", "PT", "RUF", "UP"]
