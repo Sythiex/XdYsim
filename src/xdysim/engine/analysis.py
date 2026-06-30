@@ -53,9 +53,20 @@ def static_check(rank: SkillRank | int, dc: int) -> StaticCheckSummary:
     distribution = distribution_for_rank(rank)
     probability_eq = distribution.probability_of(dc)
     probability_gt = sum(
-        probability
-        for result, probability in distribution.ordered_pmf
-        if result > dc
+        (
+            probability
+            for result, probability in distribution.ordered_pmf
+            if result > dc
+        ),
+        start=Fraction(),
+    )
+    probability_lte = sum(
+        (
+            probability
+            for result, probability in distribution.ordered_pmf
+            if result <= dc
+        ),
+        start=Fraction(),
     )
     return StaticCheckSummary(
         pool=distribution.pool,
@@ -63,6 +74,7 @@ def static_check(rank: SkillRank | int, dc: int) -> StaticCheckSummary:
         probability_gt=probability_gt,
         probability_eq=probability_eq,
         probability_gte=probability_gt + probability_eq,
+        probability_lte=probability_lte,
     )
 
 

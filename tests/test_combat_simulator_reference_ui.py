@@ -13,7 +13,10 @@ from xdysim.gui.combat_simulator_tab import CombatSimulatorTab
 def _application() -> QApplication:
     app = QApplication.instance()
     if app is None:
-        app = QApplication([])
+        return QApplication([])
+    if not isinstance(app, QApplication):
+        msg = "Tests require a QApplication instance"
+        raise RuntimeError(msg)
     return app
 
 

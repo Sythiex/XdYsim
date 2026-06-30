@@ -59,9 +59,18 @@ def test_rank_two_distribution_matches_known_profile() -> None:
 def test_static_check_internal_relationships(rank: SkillRank) -> None:
     for dc in range(0, 26):
         summary = static_check(rank, dc)
+        distribution = distribution_for_rank(rank)
+        expected_lte = sum(
+            probability
+            for result, probability in distribution.ordered_pmf
+            if result <= dc
+        )
         assert summary.probability_gt + summary.probability_eq == summary.probability_gte
+        assert summary.probability_lte == expected_lte
+        assert summary.probability_gt + summary.probability_lte == Fraction(1, 1)
         assert Fraction() <= summary.probability_gt <= Fraction(1, 1)
         assert Fraction() <= summary.probability_eq <= Fraction(1, 1)
+        assert Fraction() <= summary.probability_lte <= Fraction(1, 1)
 
 
 @given(rank=RANK_STRATEGY, dc=st.integers(min_value=0, max_value=24))
@@ -69,6 +78,7 @@ def test_static_check_probability_is_monotonic(rank: SkillRank, dc: int) -> None
     current = static_check(rank, dc)
     next_summary = static_check(rank, dc + 1)
     assert current.probability_gt >= next_summary.probability_gt
+    assert current.probability_lte <= next_summary.probability_lte
 
 
 @given(attacker=RANK_STRATEGY, defender=RANK_STRATEGY)
@@ -157,3 +167,15 @@ def test_static_reference_tables(table_name: str, metric_name: str) -> None:
             summary = static_check(rank, int(dc_text))
             actual = float(getattr(summary, metric_name))
             assert actual == pytest.approx(reference_value, abs=1e-10)
+
+
+def test_static_lte_matches_reference_gt_complement() -> None:
+    reference_table = REFERENCE_DATA["static_gt"]
+    for attacker_label, dc_values in reference_table.items():
+        rank = RANK_BY_LABEL[attacker_label]
+        for dc_text, reference_gt in dc_values.items():
+            summary = static_check(rank, int(dc_text))
+            assert float(summary.probability_lte) == pytest.approx(
+                1.0 - reference_gt,
+                abs=1e-10,
+            )

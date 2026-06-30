@@ -46,13 +46,13 @@ class StaticChecksTab(QWidget):
 
         self.gt_label = QLabel()
         self.eq_label = QLabel()
-        self.gte_label = QLabel()
+        self.lte_label = QLabel()
 
         summary_group = QGroupBox("Exact Probabilities")
         summary_layout = QFormLayout()
-        summary_layout.addRow("P(result > DC)", self.gt_label)
-        summary_layout.addRow("P(result = DC)", self.eq_label)
-        summary_layout.addRow("P(result >= DC)", self.gte_label)
+        summary_layout.addRow("Result > DC", self.gt_label)
+        summary_layout.addRow("Result = DC", self.eq_label)
+        summary_layout.addRow("Result <= DC", self.lte_label)
         summary_group.setLayout(summary_layout)
 
         header_layout = QHBoxLayout()
@@ -85,7 +85,7 @@ class StaticChecksTab(QWidget):
 
         self.gt_label.setText(_format_probability(summary.probability_gt))
         self.eq_label.setText(_format_probability(summary.probability_eq))
-        self.gte_label.setText(_format_probability(summary.probability_gte))
+        self.lte_label.setText(_format_probability(summary.probability_lte))
 
         ordered_rows = distribution.ordered_pmf
         self.distribution_table.setRowCount(len(ordered_rows))

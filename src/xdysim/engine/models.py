@@ -192,6 +192,7 @@ class StaticCheckSummary(BaseModel):
     probability_gt: Fraction
     probability_eq: Fraction
     probability_gte: Fraction
+    probability_lte: Fraction
 
 
 class OpposedRollSummary(BaseModel):
