@@ -183,12 +183,22 @@ class RollDistribution(BaseModel):
     def probability_of(self, result: int) -> Fraction:
         return self.pmf.get(result, Fraction())
 
+    def shifted(self, modifier: int) -> RollDistribution:
+        return RollDistribution(
+            pool=self.pool,
+            pmf={
+                result + modifier: probability
+                for result, probability in self.pmf.items()
+            },
+        )
+
 
 class StaticCheckSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     pool: DicePool
     dc: int = Field(ge=0)
+    circumstance: int = 0
     probability_gt: Fraction
     probability_eq: Fraction
     probability_gte: Fraction
@@ -200,6 +210,9 @@ class OpposedRollSummary(BaseModel):
 
     attacker_pool: DicePool
     defender_pool: DicePool
+    attacker_circumstance: int = 0
+    defender_circumstance: int = 0
     probability_attacker_win: Fraction
     probability_tie: Fraction
+    probability_attacker_lte: Fraction
     expected_positive_margin: Fraction

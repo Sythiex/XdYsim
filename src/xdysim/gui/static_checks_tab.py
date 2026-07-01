@@ -38,10 +38,15 @@ class StaticChecksTab(QWidget):
         self.dc_spin.setRange(0, 40)
         self.dc_spin.setValue(4)
 
+        self.circumstance_spin = QSpinBox()
+        self.circumstance_spin.setRange(-40, 40)
+        self.circumstance_spin.setValue(0)
+
         controls_group = QGroupBox("Check Setup")
         controls_layout = QFormLayout()
-        controls_layout.addRow("Skill rank", self.rank_combo)
         controls_layout.addRow("Static DC", self.dc_spin)
+        controls_layout.addRow("Skill Rank", self.rank_combo)
+        controls_layout.addRow("Circumstance", self.circumstance_spin)
         controls_group.setLayout(controls_layout)
 
         self.gt_label = QLabel()
@@ -73,6 +78,7 @@ class StaticChecksTab(QWidget):
 
         self.rank_combo.currentIndexChanged.connect(self.refresh)
         self.dc_spin.valueChanged.connect(self.refresh)
+        self.circumstance_spin.valueChanged.connect(self.refresh)
         self.refresh()
 
     def _selected_rank(self) -> SkillRank:
@@ -80,8 +86,9 @@ class StaticChecksTab(QWidget):
 
     def refresh(self) -> None:
         rank = self._selected_rank()
-        summary = static_check(rank, self.dc_spin.value())
-        distribution = distribution_for_rank(rank)
+        circumstance = self.circumstance_spin.value()
+        summary = static_check(rank, self.dc_spin.value(), circumstance=circumstance)
+        distribution = distribution_for_rank(rank).shifted(circumstance)
 
         self.gt_label.setText(_format_probability(summary.probability_gt))
         self.eq_label.setText(_format_probability(summary.probability_eq))

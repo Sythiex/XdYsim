@@ -18,6 +18,7 @@ from xdysim.engine import (
     all_dice_pools,
     apply_injury,
     distribution_for_rank,
+    opposed_metric_matrices,
     opposed_roll,
     resolve_martial_attack,
     static_check,
@@ -42,6 +43,22 @@ def test_distribution_probability_mass_sums_to_one(rank: SkillRank) -> None:
     assert sum(distribution.pmf.values(), start=Fraction()) == Fraction(1, 1)
 
 
+@pytest.mark.parametrize("rank", ALL_SKILL_RANKS)
+@pytest.mark.parametrize("modifier", [-40, -3, 0, 3, 40])
+def test_shifted_distribution_preserves_probability_mass(
+    rank: SkillRank,
+    modifier: int,
+) -> None:
+    distribution = distribution_for_rank(rank)
+    shifted = distribution.shifted(modifier)
+
+    assert sum(shifted.pmf.values(), start=Fraction()) == Fraction(1, 1)
+    assert shifted.ordered_pmf == tuple(
+        (result + modifier, probability)
+        for result, probability in distribution.ordered_pmf
+    )
+
+
 def test_rank_two_distribution_matches_known_profile() -> None:
     distribution = distribution_for_rank(SkillRank.TWO)
     assert distribution.pmf == {
@@ -55,16 +72,41 @@ def test_rank_two_distribution_matches_known_profile() -> None:
     }
 
 
+def test_static_check_applies_positive_circumstance() -> None:
+    summary = static_check(SkillRank.TWO, 4, circumstance=1)
+
+    assert summary.circumstance == 1
+    assert summary.probability_gt == Fraction(15, 24)
+    assert summary.probability_eq == Fraction(5, 24)
+    assert summary.probability_gte == Fraction(20, 24)
+    assert summary.probability_lte == Fraction(9, 24)
+
+
+def test_static_check_applies_negative_circumstance() -> None:
+    summary = static_check(SkillRank.TWO, 4, circumstance=-2)
+
+    assert summary.circumstance == -2
+    assert summary.probability_gt == Fraction(1, 24)
+    assert summary.probability_eq == Fraction(4, 24)
+    assert summary.probability_gte == Fraction(5, 24)
+    assert summary.probability_lte == Fraction(23, 24)
+
+
 @pytest.mark.parametrize("rank", ALL_SKILL_RANKS)
-def test_static_check_internal_relationships(rank: SkillRank) -> None:
+@pytest.mark.parametrize("circumstance", [-3, 0, 3])
+def test_static_check_internal_relationships(rank: SkillRank, circumstance: int) -> None:
     for dc in range(0, 26):
-        summary = static_check(rank, dc)
-        distribution = distribution_for_rank(rank)
+        summary = static_check(rank, dc, circumstance=circumstance)
+        distribution = distribution_for_rank(rank).shifted(circumstance)
         expected_lte = sum(
-            probability
-            for result, probability in distribution.ordered_pmf
-            if result <= dc
+            (
+                probability
+                for result, probability in distribution.ordered_pmf
+                if result <= dc
+            ),
+            start=Fraction(),
         )
+        assert summary.circumstance == circumstance
         assert summary.probability_gt + summary.probability_eq == summary.probability_gte
         assert summary.probability_lte == expected_lte
         assert summary.probability_gt + summary.probability_lte == Fraction(1, 1)
@@ -81,11 +123,30 @@ def test_static_check_probability_is_monotonic(rank: SkillRank, dc: int) -> None
     assert current.probability_lte <= next_summary.probability_lte
 
 
+@given(
+    rank=RANK_STRATEGY,
+    dc=st.integers(min_value=0, max_value=24),
+    circumstance=st.integers(min_value=-40, max_value=39),
+)
+def test_static_check_probability_is_monotonic_by_circumstance(
+    rank: SkillRank,
+    dc: int,
+    circumstance: int,
+) -> None:
+    current = static_check(rank, dc, circumstance=circumstance)
+    increased = static_check(rank, dc, circumstance=circumstance + 1)
+    assert current.probability_gt <= increased.probability_gt
+    assert current.probability_lte >= increased.probability_lte
+
+
 @given(attacker=RANK_STRATEGY, defender=RANK_STRATEGY)
 def test_opposed_symmetry_relationship(attacker: SkillRank, defender: SkillRank) -> None:
     forward = opposed_roll(attacker, defender)
     reverse = opposed_roll(defender, attacker)
     assert forward.probability_tie == reverse.probability_tie
+    assert forward.probability_attacker_lte == (
+        Fraction(1, 1) - forward.probability_attacker_win
+    )
     assert (
         forward.probability_attacker_win
         + reverse.probability_attacker_win
@@ -94,17 +155,171 @@ def test_opposed_symmetry_relationship(attacker: SkillRank, defender: SkillRank)
     )
 
 
+@pytest.mark.parametrize(
+    (
+        "attacker_circumstance",
+        "defender_circumstance",
+        "expected_win",
+        "expected_tie",
+        "expected_margin",
+    ),
+    [
+        (1, 0, Fraction(343, 576), Fraction(5, 32), Fraction(827, 576)),
+        (0, 1, Fraction(143, 576), Fraction(5, 32), Fraction(251, 576)),
+        (2, -1, Fraction(505, 576), Fraction(43, 576), Fraction(1765, 576)),
+    ],
+)
+def test_opposed_roll_applies_circumstances(
+    attacker_circumstance: int,
+    defender_circumstance: int,
+    expected_win: Fraction,
+    expected_tie: Fraction,
+    expected_margin: Fraction,
+) -> None:
+    summary = opposed_roll(
+        SkillRank.TWO,
+        SkillRank.TWO,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+    )
+
+    assert summary.attacker_circumstance == attacker_circumstance
+    assert summary.defender_circumstance == defender_circumstance
+    assert summary.probability_attacker_win == expected_win
+    assert summary.probability_tie == expected_tie
+    assert summary.probability_attacker_lte == Fraction(1, 1) - expected_win
+    assert summary.expected_positive_margin == expected_margin
+
+
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-5, max_value=5),
+    defender_circumstance=st.integers(min_value=-5, max_value=5),
+)
+def test_opposed_symmetry_relationship_with_circumstances(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+) -> None:
+    forward = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+    )
+    reverse = opposed_roll(
+        defender,
+        attacker,
+        attacker_circumstance=defender_circumstance,
+        defender_circumstance=attacker_circumstance,
+    )
+
+    assert forward.probability_tie == reverse.probability_tie
+    assert forward.probability_attacker_lte == (
+        Fraction(1, 1) - forward.probability_attacker_win
+    )
+    assert (
+        forward.probability_attacker_win
+        + reverse.probability_attacker_win
+        + forward.probability_tie
+        == Fraction(1, 1)
+    )
+
+
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-5, max_value=4),
+    defender_circumstance=st.integers(min_value=-5, max_value=5),
+)
+def test_opposed_roll_improves_with_attacker_circumstance(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+) -> None:
+    current = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+    )
+    increased = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance + 1,
+        defender_circumstance=defender_circumstance,
+    )
+
+    assert current.probability_attacker_win <= increased.probability_attacker_win
+    assert current.expected_positive_margin <= increased.expected_positive_margin
+
+
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-5, max_value=5),
+    defender_circumstance=st.integers(min_value=-5, max_value=4),
+)
+def test_opposed_roll_declines_with_defender_circumstance(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+) -> None:
+    current = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+    )
+    increased = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance + 1,
+    )
+
+    assert current.probability_attacker_win >= increased.probability_attacker_win
+    assert current.expected_positive_margin >= increased.expected_positive_margin
+
+
+def test_opposed_metric_matrices_apply_circumstances() -> None:
+    _pools, win_matrix, margin_matrix = opposed_metric_matrices(
+        attacker_circumstance=1,
+        defender_circumstance=0,
+    )
+    summary = opposed_roll(
+        SkillRank.TWO,
+        SkillRank.TWO,
+        attacker_circumstance=1,
+        defender_circumstance=0,
+    )
+
+    assert win_matrix[1, 1] == pytest.approx(float(summary.probability_attacker_win))
+    assert margin_matrix[1, 1] == pytest.approx(float(summary.expected_positive_margin))
+
+
 @pytest.mark.parametrize("rank", ALL_SKILL_RANKS)
 def test_defender_wins_ties_for_equal_ranks(rank: SkillRank) -> None:
     summary = opposed_roll(rank, rank)
     assert summary.probability_tie > Fraction()
     assert summary.probability_attacker_win == (Fraction(1, 1) - summary.probability_tie) / 2
+    assert summary.probability_attacker_lte == (
+        Fraction(1, 1) - summary.probability_attacker_win
+    )
 
 
 def test_minor_injury_upgrades_when_minor_track_is_full() -> None:
     combatant = Combatant(
         name="Guardian",
-        combat=CombatProfile(skill_rank=SkillRank.THREE),
+        combat=CombatProfile(
+            attack_skill_rank=SkillRank.THREE,
+            defense_skill_rank=SkillRank.THREE,
+            initiative_skill_rank=SkillRank.THREE,
+        ),
         injury_track=InjuryTrack(minor_capacity=0, major_capacity=2),
     )
     state = CombatState(combatant=combatant)
@@ -117,7 +332,11 @@ def test_minor_injury_upgrades_when_minor_track_is_full() -> None:
 def test_major_injury_overflow_causes_unconsciousness() -> None:
     defender = Combatant(
         name="Target",
-        combat=CombatProfile(skill_rank=SkillRank.ONE),
+        combat=CombatProfile(
+            attack_skill_rank=SkillRank.ONE,
+            defense_skill_rank=SkillRank.ONE,
+            initiative_skill_rank=SkillRank.ONE,
+        ),
         armor=Armor(rating=1),
         injury_track=InjuryTrack(minor_capacity=1, major_capacity=1),
     )

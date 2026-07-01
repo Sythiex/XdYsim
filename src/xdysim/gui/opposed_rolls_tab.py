@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -38,21 +39,31 @@ class OpposedRollsTab(QWidget):
 
         self.defender_combo.setCurrentIndex(1)
 
+        self.attacker_circumstance_spin = QSpinBox()
+        self.attacker_circumstance_spin.setRange(-40, 40)
+        self.attacker_circumstance_spin.setValue(0)
+
+        self.defender_circumstance_spin = QSpinBox()
+        self.defender_circumstance_spin.setRange(-40, 40)
+        self.defender_circumstance_spin.setValue(0)
+
         controls_group = QGroupBox("Opposed Check Setup")
         controls_layout = QFormLayout()
         controls_layout.addRow("Attacker", self.attacker_combo)
+        controls_layout.addRow("Attacker Circumstance", self.attacker_circumstance_spin)
         controls_layout.addRow("Defender", self.defender_combo)
+        controls_layout.addRow("Defender Circumstance", self.defender_circumstance_spin)
         controls_group.setLayout(controls_layout)
 
         self.win_label = QLabel()
-        self.tie_label = QLabel()
+        self.lte_label = QLabel()
         self.margin_label = QLabel()
 
         summary_group = QGroupBox("Exact Opposed Results")
         summary_layout = QFormLayout()
-        summary_layout.addRow("P(attacker > defender)", self.win_label)
-        summary_layout.addRow("P(attacker = defender)", self.tie_label)
-        summary_layout.addRow("E(max(attacker - defender, 0))", self.margin_label)
+        summary_layout.addRow("Attacker > Defender", self.win_label)
+        summary_layout.addRow("Attacker <= Defender", self.lte_label)
+        summary_layout.addRow("Margin: E(max(attacker - defender, 0))", self.margin_label)
         summary_group.setLayout(summary_layout)
 
         header_layout = QHBoxLayout()
@@ -61,7 +72,6 @@ class OpposedRollsTab(QWidget):
 
         self.win_table = QTableWidget()
         self.margin_table = QTableWidget()
-        self._populate_matrix_tables()
 
         layout = QVBoxLayout()
         layout.addLayout(header_layout)
@@ -73,6 +83,8 @@ class OpposedRollsTab(QWidget):
 
         self.attacker_combo.currentIndexChanged.connect(self.refresh)
         self.defender_combo.currentIndexChanged.connect(self.refresh)
+        self.attacker_circumstance_spin.valueChanged.connect(self.refresh)
+        self.defender_circumstance_spin.valueChanged.connect(self.refresh)
         self.refresh()
 
     def _selected_attacker(self) -> SkillRank:
@@ -81,8 +93,15 @@ class OpposedRollsTab(QWidget):
     def _selected_defender(self) -> SkillRank:
         return SkillRank(int(self.defender_combo.currentData()))
 
-    def _populate_matrix_tables(self) -> None:
-        pools, win_matrix, margin_matrix = opposed_metric_matrices()
+    def _populate_matrix_tables(
+        self,
+        attacker_circumstance: int,
+        defender_circumstance: int,
+    ) -> None:
+        pools, win_matrix, margin_matrix = opposed_metric_matrices(
+            attacker_circumstance=attacker_circumstance,
+            defender_circumstance=defender_circumstance,
+        )
         labels = [pool.label for pool in pools]
 
         for table in (self.win_table, self.margin_table):
@@ -108,7 +127,15 @@ class OpposedRollsTab(QWidget):
         self.margin_table.resizeColumnsToContents()
 
     def refresh(self) -> None:
-        summary = opposed_roll(self._selected_attacker(), self._selected_defender())
+        attacker_circumstance = self.attacker_circumstance_spin.value()
+        defender_circumstance = self.defender_circumstance_spin.value()
+        summary = opposed_roll(
+            self._selected_attacker(),
+            self._selected_defender(),
+            attacker_circumstance=attacker_circumstance,
+            defender_circumstance=defender_circumstance,
+        )
         self.win_label.setText(_format_probability(summary.probability_attacker_win))
-        self.tie_label.setText(_format_probability(summary.probability_tie))
+        self.lte_label.setText(_format_probability(summary.probability_attacker_lte))
         self.margin_label.setText(f"{float(summary.expected_positive_margin):.6f}")
+        self._populate_matrix_tables(attacker_circumstance, defender_circumstance)
