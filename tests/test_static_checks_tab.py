@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QFormLayout, QLabel
 
+from xdysim.gui.edge_hindrance_spin_box import EdgeHindranceSpinBox
 from xdysim.gui.static_checks_tab import StaticChecksTab
 
 
@@ -68,25 +69,43 @@ def test_static_checks_tab_setup_controls_use_expected_order() -> None:
         controls_layout = _controls_layout(tab)
         dc_label = controls_layout.labelForField(tab.dc_spin)
         rank_label = controls_layout.labelForField(tab.rank_combo)
+        edge_hindrance_label = controls_layout.labelForField(tab.edge_hindrance_spin)
         circumstance_label = controls_layout.labelForField(tab.circumstance_spin)
         dc_row = _field_row(controls_layout, tab.dc_spin)
         rank_row = _field_row(controls_layout, tab.rank_combo)
+        edge_hindrance_row = _field_row(controls_layout, tab.edge_hindrance_spin)
         circumstance_row = _field_row(controls_layout, tab.circumstance_spin)
 
         assert isinstance(dc_label, QLabel)
         assert dc_label.text() == "Static DC"
         assert isinstance(rank_label, QLabel)
         assert rank_label.text() == "Skill Rank"
+        assert isinstance(edge_hindrance_label, QLabel)
+        assert edge_hindrance_label.text() == "Edge / Hindrance"
         assert isinstance(circumstance_label, QLabel)
         assert circumstance_label.text() == "Circumstance"
         assert dc_row == 0
         assert rank_row == dc_row + 1
-        assert circumstance_row == rank_row + 1
+        assert edge_hindrance_row == rank_row + 1
+        assert circumstance_row == edge_hindrance_row + 1
+        assert tab.edge_hindrance_spin.minimum() == -10
+        assert tab.edge_hindrance_spin.maximum() == 10
+        assert tab.edge_hindrance_spin.value() == 0
         assert tab.circumstance_spin.minimum() == -40
         assert tab.circumstance_spin.maximum() == 40
         assert tab.circumstance_spin.value() == 0
     finally:
         tab.close()
+
+
+def test_edge_hindrance_spinner_formats_values() -> None:
+    spinner = EdgeHindranceSpinBox()
+
+    assert spinner.textFromValue(0) == "0"
+    assert spinner.textFromValue(1) == "+1 Edge"
+    assert spinner.textFromValue(2) == "+2 Edge"
+    assert spinner.textFromValue(-1) == "-1 Hindrance"
+    assert spinner.textFromValue(-2) == "-2 Hindrance"
 
 
 def test_static_checks_tab_applies_circumstance_to_summary_and_distribution() -> None:
@@ -108,5 +127,29 @@ def test_static_checks_tab_applies_circumstance_to_summary_and_distribution() ->
         assert last_result is not None
         assert first_result.text() == "2"
         assert last_result.text() == "8"
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_applies_edge_hindrance_to_summary_and_distribution() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        tab.rank_combo.setCurrentIndex(0)
+        tab.dc_spin.setValue(2)
+        tab.edge_hindrance_spin.setValue(1)
+        tab.circumstance_spin.setValue(1)
+        app.processEvents()
+
+        assert tab.gt_label.text() == "93.7500% (15/16)"
+        assert tab.eq_label.text() == "6.2500% (1/16)"
+        assert tab.lte_label.text() == "6.2500% (1/16)"
+        first_result = tab.distribution_table.item(0, 0)
+        last_result = tab.distribution_table.item(3, 0)
+        assert first_result is not None
+        assert last_result is not None
+        assert first_result.text() == "2"
+        assert last_result.text() == "5"
     finally:
         tab.close()

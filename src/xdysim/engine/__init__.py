@@ -2,6 +2,7 @@
 
 from xdysim.engine.analysis import (
     distribution_for_rank,
+    distribution_for_rank_with_edge,
     opposed_metric_matrices,
     opposed_roll,
     static_check,
@@ -99,6 +100,7 @@ __all__ = [
     "default_app_preset_directory",
     "deserialize_combat_simulator_preset_json",
     "distribution_for_rank",
+    "distribution_for_rank_with_edge",
     "encode_combat_simulator_preset_share_string",
     "fresh_combat_state",
     "load_combat_simulator_preset_file",

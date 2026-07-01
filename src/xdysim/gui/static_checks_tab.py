@@ -18,8 +18,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from xdysim.engine import all_dice_pools, distribution_for_rank, static_check
+from xdysim.engine import all_dice_pools, distribution_for_rank_with_edge, static_check
 from xdysim.engine.models import SkillRank
+from xdysim.gui.edge_hindrance_spin_box import EdgeHindranceSpinBox
 
 
 def _format_probability(probability: Fraction) -> str:
@@ -42,10 +43,15 @@ class StaticChecksTab(QWidget):
         self.circumstance_spin.setRange(-40, 40)
         self.circumstance_spin.setValue(0)
 
+        self.edge_hindrance_spin = EdgeHindranceSpinBox()
+        self.edge_hindrance_spin.setRange(-10, 10)
+        self.edge_hindrance_spin.setValue(0)
+
         controls_group = QGroupBox("Check Setup")
         controls_layout = QFormLayout()
         controls_layout.addRow("Static DC", self.dc_spin)
         controls_layout.addRow("Skill Rank", self.rank_combo)
+        controls_layout.addRow("Edge / Hindrance", self.edge_hindrance_spin)
         controls_layout.addRow("Circumstance", self.circumstance_spin)
         controls_group.setLayout(controls_layout)
 
@@ -78,6 +84,7 @@ class StaticChecksTab(QWidget):
 
         self.rank_combo.currentIndexChanged.connect(self.refresh)
         self.dc_spin.valueChanged.connect(self.refresh)
+        self.edge_hindrance_spin.valueChanged.connect(self.refresh)
         self.circumstance_spin.valueChanged.connect(self.refresh)
         self.refresh()
 
@@ -87,8 +94,17 @@ class StaticChecksTab(QWidget):
     def refresh(self) -> None:
         rank = self._selected_rank()
         circumstance = self.circumstance_spin.value()
-        summary = static_check(rank, self.dc_spin.value(), circumstance=circumstance)
-        distribution = distribution_for_rank(rank).shifted(circumstance)
+        edge_hindrance = self.edge_hindrance_spin.value()
+        summary = static_check(
+            rank,
+            self.dc_spin.value(),
+            circumstance=circumstance,
+            edge_hindrance=edge_hindrance,
+        )
+        distribution = distribution_for_rank_with_edge(
+            rank,
+            edge_hindrance=edge_hindrance,
+        ).shifted(circumstance)
 
         self.gt_label.setText(_format_probability(summary.probability_gt))
         self.eq_label.setText(_format_probability(summary.probability_eq))

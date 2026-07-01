@@ -48,9 +48,55 @@ def distribution_for_rank(rank: SkillRank | int) -> RollDistribution:
 
 
 @cache
-def static_check(rank: SkillRank | int, dc: int, circumstance: int = 0) -> StaticCheckSummary:
+def distribution_for_rank_with_edge(
+    rank: SkillRank | int,
+    edge_hindrance: int = 0,
+) -> RollDistribution:
+    """Return the exact PMF after applying net Edge or Hindrance."""
+    if edge_hindrance == 0:
+        return distribution_for_rank(rank)
+
+    skill_rank = coerce_skill_rank(rank)
+    pool = DicePool.for_rank(skill_rank)
+    smaller_dice = pool.dice[:-1]
+    largest_die = pool.dice[-1]
+    largest_samples = abs(edge_hindrance) + 1
+
+    selected_largest_counts = {
+        result: result**largest_samples - (result - 1) ** largest_samples
+        for result in range(1, largest_die + 1)
+    }
+    if edge_hindrance < 0:
+        selected_largest_counts = {
+            result: (largest_die - result + 1) ** largest_samples
+            - (largest_die - result) ** largest_samples
+            for result in range(1, largest_die + 1)
+        }
+
+    smaller_outcomes = product(*(range(1, sides + 1) for sides in smaller_dice))
+    counts: Counter[int] = Counter()
+    for smaller_rolls in smaller_outcomes:
+        for selected_largest, selected_count in selected_largest_counts.items():
+            rolls = (*smaller_rolls, selected_largest)
+            counts[_resolve_roll(rolls, pool.dice)] += selected_count
+
+    denominator = prod(smaller_dice) * largest_die**largest_samples
+    pmf = {
+        result: Fraction(count, denominator)
+        for result, count in sorted(counts.items())
+    }
+    return RollDistribution(pool=pool, pmf=pmf)
+
+
+@cache
+def static_check(
+    rank: SkillRank | int,
+    dc: int,
+    circumstance: int = 0,
+    edge_hindrance: int = 0,
+) -> StaticCheckSummary:
     """Return exact probabilities for a static check against the given DC."""
-    distribution = distribution_for_rank(rank).shifted(circumstance)
+    distribution = distribution_for_rank_with_edge(rank, edge_hindrance).shifted(circumstance)
     probability_eq = distribution.probability_of(dc)
     probability_gt = sum(
         (
@@ -72,6 +118,7 @@ def static_check(rank: SkillRank | int, dc: int, circumstance: int = 0) -> Stati
         pool=distribution.pool,
         dc=dc,
         circumstance=circumstance,
+        edge_hindrance=edge_hindrance,
         probability_gt=probability_gt,
         probability_eq=probability_eq,
         probability_gte=probability_gt + probability_eq,
@@ -85,10 +132,18 @@ def opposed_roll(
     defender_rank: SkillRank | int,
     attacker_circumstance: int = 0,
     defender_circumstance: int = 0,
+    attacker_edge_hindrance: int = 0,
+    defender_edge_hindrance: int = 0,
 ) -> OpposedRollSummary:
     """Return exact win, tie, and positive-margin metrics for an opposed roll."""
-    attacker_distribution = distribution_for_rank(attacker_rank).shifted(attacker_circumstance)
-    defender_distribution = distribution_for_rank(defender_rank).shifted(defender_circumstance)
+    attacker_distribution = distribution_for_rank_with_edge(
+        attacker_rank,
+        attacker_edge_hindrance,
+    ).shifted(attacker_circumstance)
+    defender_distribution = distribution_for_rank_with_edge(
+        defender_rank,
+        defender_edge_hindrance,
+    ).shifted(defender_circumstance)
     probability_attacker_win = Fraction()
     probability_tie = Fraction()
     expected_positive_margin = Fraction()
@@ -109,6 +164,8 @@ def opposed_roll(
         defender_pool=defender_distribution.pool,
         attacker_circumstance=attacker_circumstance,
         defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance,
         probability_attacker_win=probability_attacker_win,
         probability_tie=probability_tie,
         probability_attacker_lte=Fraction(1, 1) - probability_attacker_win,
@@ -119,6 +176,8 @@ def opposed_roll(
 def opposed_metric_matrices(
     attacker_circumstance: int = 0,
     defender_circumstance: int = 0,
+    attacker_edge_hindrance: int = 0,
+    defender_edge_hindrance: int = 0,
 ) -> tuple[list[DicePool], np.ndarray, np.ndarray]:
     """Build all rank-vs-rank win-rate and positive-margin matrices."""
     pools = list(all_dice_pools())
@@ -133,6 +192,8 @@ def opposed_metric_matrices(
                 defender,
                 attacker_circumstance=attacker_circumstance,
                 defender_circumstance=defender_circumstance,
+                attacker_edge_hindrance=attacker_edge_hindrance,
+                defender_edge_hindrance=defender_edge_hindrance,
             )
             win_matrix[attacker_index, defender_index] = float(summary.probability_attacker_win)
             margin_matrix[attacker_index, defender_index] = float(summary.expected_positive_margin)

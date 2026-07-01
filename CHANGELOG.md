@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0] - 2026-07-01
+
+### Added
+
+- Added an `Edge / Hindrance` modifier to the Static Checks tab.
+- Added Attacker and Defender `Edge / Hindrance` modifiers to the Opposed Rolls tab.
+- Added a bundled app icon for the desktop window and Windows taskbar.
+
 ## [0.2.0] - 2026-06-30
 
 ### Added

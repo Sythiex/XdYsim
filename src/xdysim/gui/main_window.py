@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMainWindow, QTabWidget
 
 from xdysim.gui.combat_simulator_tab import CombatSimulatorTab
+from xdysim.gui.icons import app_icon
 from xdysim.gui.opposed_rolls_tab import OpposedRollsTab
 from xdysim.gui.static_checks_tab import StaticChecksTab
 
@@ -18,6 +19,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("XdYsim")
+        self.setWindowIcon(app_icon())
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 

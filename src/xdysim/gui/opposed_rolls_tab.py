@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from xdysim.engine import all_dice_pools, opposed_metric_matrices, opposed_roll
 from xdysim.engine.models import SkillRank
+from xdysim.gui.edge_hindrance_spin_box import EdgeHindranceSpinBox
 
 
 def _format_probability(probability: Fraction) -> str:
@@ -39,9 +40,17 @@ class OpposedRollsTab(QWidget):
 
         self.defender_combo.setCurrentIndex(1)
 
+        self.attacker_edge_hindrance_spin = EdgeHindranceSpinBox()
+        self.attacker_edge_hindrance_spin.setRange(-10, 10)
+        self.attacker_edge_hindrance_spin.setValue(0)
+
         self.attacker_circumstance_spin = QSpinBox()
         self.attacker_circumstance_spin.setRange(-40, 40)
         self.attacker_circumstance_spin.setValue(0)
+
+        self.defender_edge_hindrance_spin = EdgeHindranceSpinBox()
+        self.defender_edge_hindrance_spin.setRange(-10, 10)
+        self.defender_edge_hindrance_spin.setValue(0)
 
         self.defender_circumstance_spin = QSpinBox()
         self.defender_circumstance_spin.setRange(-40, 40)
@@ -50,8 +59,10 @@ class OpposedRollsTab(QWidget):
         controls_group = QGroupBox("Opposed Check Setup")
         controls_layout = QFormLayout()
         controls_layout.addRow("Attacker", self.attacker_combo)
+        controls_layout.addRow("Attacker Edge / Hindrance", self.attacker_edge_hindrance_spin)
         controls_layout.addRow("Attacker Circumstance", self.attacker_circumstance_spin)
         controls_layout.addRow("Defender", self.defender_combo)
+        controls_layout.addRow("Defender Edge / Hindrance", self.defender_edge_hindrance_spin)
         controls_layout.addRow("Defender Circumstance", self.defender_circumstance_spin)
         controls_group.setLayout(controls_layout)
 
@@ -83,7 +94,9 @@ class OpposedRollsTab(QWidget):
 
         self.attacker_combo.currentIndexChanged.connect(self.refresh)
         self.defender_combo.currentIndexChanged.connect(self.refresh)
+        self.attacker_edge_hindrance_spin.valueChanged.connect(self.refresh)
         self.attacker_circumstance_spin.valueChanged.connect(self.refresh)
+        self.defender_edge_hindrance_spin.valueChanged.connect(self.refresh)
         self.defender_circumstance_spin.valueChanged.connect(self.refresh)
         self.refresh()
 
@@ -97,10 +110,14 @@ class OpposedRollsTab(QWidget):
         self,
         attacker_circumstance: int,
         defender_circumstance: int,
+        attacker_edge_hindrance: int,
+        defender_edge_hindrance: int,
     ) -> None:
         pools, win_matrix, margin_matrix = opposed_metric_matrices(
             attacker_circumstance=attacker_circumstance,
             defender_circumstance=defender_circumstance,
+            attacker_edge_hindrance=attacker_edge_hindrance,
+            defender_edge_hindrance=defender_edge_hindrance,
         )
         labels = [pool.label for pool in pools]
 
@@ -129,13 +146,22 @@ class OpposedRollsTab(QWidget):
     def refresh(self) -> None:
         attacker_circumstance = self.attacker_circumstance_spin.value()
         defender_circumstance = self.defender_circumstance_spin.value()
+        attacker_edge_hindrance = self.attacker_edge_hindrance_spin.value()
+        defender_edge_hindrance = self.defender_edge_hindrance_spin.value()
         summary = opposed_roll(
             self._selected_attacker(),
             self._selected_defender(),
             attacker_circumstance=attacker_circumstance,
             defender_circumstance=defender_circumstance,
+            attacker_edge_hindrance=attacker_edge_hindrance,
+            defender_edge_hindrance=defender_edge_hindrance,
         )
         self.win_label.setText(_format_probability(summary.probability_attacker_win))
         self.lte_label.setText(_format_probability(summary.probability_attacker_lte))
         self.margin_label.setText(f"{float(summary.expected_positive_margin):.6f}")
-        self._populate_matrix_tables(attacker_circumstance, defender_circumstance)
+        self._populate_matrix_tables(
+            attacker_circumstance,
+            defender_circumstance,
+            attacker_edge_hindrance,
+            defender_edge_hindrance,
+        )

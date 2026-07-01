@@ -199,6 +199,7 @@ class StaticCheckSummary(BaseModel):
     pool: DicePool
     dc: int = Field(ge=0)
     circumstance: int = 0
+    edge_hindrance: int = 0
     probability_gt: Fraction
     probability_eq: Fraction
     probability_gte: Fraction
@@ -212,6 +213,8 @@ class OpposedRollSummary(BaseModel):
     defender_pool: DicePool
     attacker_circumstance: int = 0
     defender_circumstance: int = 0
+    attacker_edge_hindrance: int = 0
+    defender_edge_hindrance: int = 0
     probability_attacker_win: Fraction
     probability_tie: Fraction
     probability_attacker_lte: Fraction

@@ -5,7 +5,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from xdysim.engine import (
@@ -18,6 +18,7 @@ from xdysim.engine import (
     all_dice_pools,
     apply_injury,
     distribution_for_rank,
+    distribution_for_rank_with_edge,
     opposed_metric_matrices,
     opposed_roll,
     resolve_martial_attack,
@@ -72,6 +73,89 @@ def test_rank_two_distribution_matches_known_profile() -> None:
     }
 
 
+def test_edge_zero_distribution_matches_base_distribution() -> None:
+    for rank in ALL_SKILL_RANKS:
+        assert distribution_for_rank_with_edge(rank).pmf == distribution_for_rank(rank).pmf
+        assert distribution_for_rank_with_edge(rank, edge_hindrance=0).pmf == (
+            distribution_for_rank(rank).pmf
+        )
+
+
+def test_rank_one_edge_distribution_matches_known_profile() -> None:
+    distribution = distribution_for_rank_with_edge(SkillRank.ONE, edge_hindrance=1)
+
+    assert distribution.pmf == {
+        1: Fraction(1, 16),
+        2: Fraction(3, 16),
+        3: Fraction(5, 16),
+        4: Fraction(7, 16),
+    }
+
+
+def test_rank_one_hindrance_distribution_matches_known_profile() -> None:
+    distribution = distribution_for_rank_with_edge(SkillRank.ONE, edge_hindrance=-1)
+
+    assert distribution.pmf == {
+        1: Fraction(7, 16),
+        2: Fraction(5, 16),
+        3: Fraction(3, 16),
+        4: Fraction(1, 16),
+    }
+
+
+@pytest.mark.parametrize(
+    ("edge_hindrance", "expected_pmf"),
+    [
+        (
+            1,
+            {
+                1: Fraction(1, 144),
+                2: Fraction(7, 144),
+                3: Fraction(19, 144),
+                4: Fraction(37, 144),
+                5: Fraction(3, 16),
+                6: Fraction(7, 24),
+                7: Fraction(11, 144),
+            },
+        ),
+        (
+            -1,
+            {
+                1: Fraction(11, 144),
+                2: Fraction(29, 144),
+                3: Fraction(41, 144),
+                4: Fraction(47, 144),
+                5: Fraction(1, 16),
+                6: Fraction(1, 24),
+                7: Fraction(1, 144),
+            },
+        ),
+    ],
+)
+def test_rank_two_edge_hindrance_distribution_matches_known_profile(
+    edge_hindrance: int,
+    expected_pmf: dict[int, Fraction],
+) -> None:
+    distribution = distribution_for_rank_with_edge(
+        SkillRank.TWO,
+        edge_hindrance=edge_hindrance,
+    )
+
+    assert distribution.pmf == expected_pmf
+
+
+@pytest.mark.parametrize("edge_hindrance", [-2, -1, 0, 1, 2])
+def test_edge_hindrance_distribution_probability_mass_sums_to_one(
+    edge_hindrance: int,
+) -> None:
+    distribution = distribution_for_rank_with_edge(
+        SkillRank.THREE,
+        edge_hindrance=edge_hindrance,
+    )
+
+    assert sum(distribution.pmf.values(), start=Fraction()) == Fraction(1, 1)
+
+
 def test_static_check_applies_positive_circumstance() -> None:
     summary = static_check(SkillRank.TWO, 4, circumstance=1)
 
@@ -90,6 +174,36 @@ def test_static_check_applies_negative_circumstance() -> None:
     assert summary.probability_eq == Fraction(4, 24)
     assert summary.probability_gte == Fraction(5, 24)
     assert summary.probability_lte == Fraction(23, 24)
+
+
+def test_static_check_applies_edge() -> None:
+    summary = static_check(SkillRank.ONE, 2, edge_hindrance=1)
+
+    assert summary.edge_hindrance == 1
+    assert summary.probability_gt == Fraction(3, 4)
+    assert summary.probability_eq == Fraction(3, 16)
+    assert summary.probability_gte == Fraction(15, 16)
+    assert summary.probability_lte == Fraction(1, 4)
+
+
+def test_static_check_applies_hindrance() -> None:
+    summary = static_check(SkillRank.ONE, 2, edge_hindrance=-1)
+
+    assert summary.edge_hindrance == -1
+    assert summary.probability_gt == Fraction(1, 4)
+    assert summary.probability_eq == Fraction(5, 16)
+    assert summary.probability_gte == Fraction(9, 16)
+    assert summary.probability_lte == Fraction(3, 4)
+
+
+def test_static_check_applies_circumstance_after_edge() -> None:
+    summary = static_check(SkillRank.ONE, 2, circumstance=1, edge_hindrance=1)
+
+    assert summary.circumstance == 1
+    assert summary.edge_hindrance == 1
+    assert summary.probability_gt == Fraction(15, 16)
+    assert summary.probability_eq == Fraction(1, 16)
+    assert summary.probability_lte == Fraction(1, 16)
 
 
 @pytest.mark.parametrize("rank", ALL_SKILL_RANKS)
@@ -137,6 +251,16 @@ def test_static_check_probability_is_monotonic_by_circumstance(
     increased = static_check(rank, dc, circumstance=circumstance + 1)
     assert current.probability_gt <= increased.probability_gt
     assert current.probability_lte >= increased.probability_lte
+
+
+@pytest.mark.parametrize("dc", range(0, 8))
+def test_static_check_probability_is_monotonic_by_edge_hindrance(dc: int) -> None:
+    hindrance = static_check(SkillRank.TWO, dc, edge_hindrance=-1)
+    normal = static_check(SkillRank.TWO, dc)
+    edge = static_check(SkillRank.TWO, dc, edge_hindrance=1)
+
+    assert hindrance.probability_gt <= normal.probability_gt <= edge.probability_gt
+    assert hindrance.probability_lte >= normal.probability_lte >= edge.probability_lte
 
 
 @given(attacker=RANK_STRATEGY, defender=RANK_STRATEGY)
@@ -191,6 +315,52 @@ def test_opposed_roll_applies_circumstances(
     assert summary.expected_positive_margin == expected_margin
 
 
+@pytest.mark.parametrize(
+    (
+        "attacker_edge_hindrance",
+        "defender_edge_hindrance",
+        "expected_win",
+        "expected_tie",
+        "expected_lte",
+        "expected_margin",
+    ),
+    [
+        (1, 0, Fraction(211, 384), Fraction(53, 288), Fraction(173, 384), Fraction(535, 432)),
+        (0, 1, Fraction(307, 1152), Fraction(53, 288), Fraction(845, 1152), Fraction(211, 432)),
+        (
+            1,
+            -1,
+            Fraction(14617, 20736),
+            Fraction(1619, 10368),
+            Fraction(6119, 20736),
+            Fraction(8891, 5184),
+        ),
+    ],
+)
+def test_opposed_roll_applies_edge_hindrance(
+    attacker_edge_hindrance: int,
+    defender_edge_hindrance: int,
+    expected_win: Fraction,
+    expected_tie: Fraction,
+    expected_lte: Fraction,
+    expected_margin: Fraction,
+) -> None:
+    summary = opposed_roll(
+        SkillRank.TWO,
+        SkillRank.TWO,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance,
+    )
+
+    assert summary.attacker_edge_hindrance == attacker_edge_hindrance
+    assert summary.defender_edge_hindrance == defender_edge_hindrance
+    assert summary.probability_attacker_win == expected_win
+    assert summary.probability_tie == expected_tie
+    assert summary.probability_attacker_lte == expected_lte
+    assert summary.probability_attacker_lte == Fraction(1, 1) - expected_win
+    assert summary.expected_positive_margin == expected_margin
+
+
 @given(
     attacker=RANK_STRATEGY,
     defender=RANK_STRATEGY,
@@ -214,6 +384,52 @@ def test_opposed_symmetry_relationship_with_circumstances(
         attacker,
         attacker_circumstance=defender_circumstance,
         defender_circumstance=attacker_circumstance,
+    )
+
+    assert forward.probability_tie == reverse.probability_tie
+    assert forward.probability_attacker_lte == (
+        Fraction(1, 1) - forward.probability_attacker_win
+    )
+    assert (
+        forward.probability_attacker_win
+        + reverse.probability_attacker_win
+        + forward.probability_tie
+        == Fraction(1, 1)
+    )
+
+
+@settings(deadline=None)
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-3, max_value=3),
+    defender_circumstance=st.integers(min_value=-3, max_value=3),
+    attacker_edge_hindrance=st.integers(min_value=-1, max_value=1),
+    defender_edge_hindrance=st.integers(min_value=-1, max_value=1),
+)
+def test_opposed_symmetry_relationship_with_modifiers(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+    attacker_edge_hindrance: int,
+    defender_edge_hindrance: int,
+) -> None:
+    forward = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance,
+    )
+    reverse = opposed_roll(
+        defender,
+        attacker,
+        attacker_circumstance=defender_circumstance,
+        defender_circumstance=attacker_circumstance,
+        attacker_edge_hindrance=defender_edge_hindrance,
+        defender_edge_hindrance=attacker_edge_hindrance,
     )
 
     assert forward.probability_tie == reverse.probability_tie
@@ -257,6 +473,44 @@ def test_opposed_roll_improves_with_attacker_circumstance(
     assert current.expected_positive_margin <= increased.expected_positive_margin
 
 
+@settings(deadline=None)
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-3, max_value=3),
+    defender_circumstance=st.integers(min_value=-3, max_value=3),
+    attacker_edge_hindrance=st.integers(min_value=-1, max_value=0),
+    defender_edge_hindrance=st.integers(min_value=-1, max_value=1),
+)
+def test_opposed_roll_improves_with_attacker_edge_hindrance(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+    attacker_edge_hindrance: int,
+    defender_edge_hindrance: int,
+) -> None:
+    current = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance,
+    )
+    increased = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance + 1,
+        defender_edge_hindrance=defender_edge_hindrance,
+    )
+
+    assert current.probability_attacker_win <= increased.probability_attacker_win
+    assert current.expected_positive_margin <= increased.expected_positive_margin
+
+
 @given(
     attacker=RANK_STRATEGY,
     defender=RANK_STRATEGY,
@@ -286,6 +540,44 @@ def test_opposed_roll_declines_with_defender_circumstance(
     assert current.expected_positive_margin >= increased.expected_positive_margin
 
 
+@settings(deadline=None)
+@given(
+    attacker=RANK_STRATEGY,
+    defender=RANK_STRATEGY,
+    attacker_circumstance=st.integers(min_value=-3, max_value=3),
+    defender_circumstance=st.integers(min_value=-3, max_value=3),
+    attacker_edge_hindrance=st.integers(min_value=-1, max_value=1),
+    defender_edge_hindrance=st.integers(min_value=-1, max_value=0),
+)
+def test_opposed_roll_declines_with_defender_edge_hindrance(
+    attacker: SkillRank,
+    defender: SkillRank,
+    attacker_circumstance: int,
+    defender_circumstance: int,
+    attacker_edge_hindrance: int,
+    defender_edge_hindrance: int,
+) -> None:
+    current = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance,
+    )
+    increased = opposed_roll(
+        attacker,
+        defender,
+        attacker_circumstance=attacker_circumstance,
+        defender_circumstance=defender_circumstance,
+        attacker_edge_hindrance=attacker_edge_hindrance,
+        defender_edge_hindrance=defender_edge_hindrance + 1,
+    )
+
+    assert current.probability_attacker_win >= increased.probability_attacker_win
+    assert current.expected_positive_margin >= increased.expected_positive_margin
+
+
 def test_opposed_metric_matrices_apply_circumstances() -> None:
     _pools, win_matrix, margin_matrix = opposed_metric_matrices(
         attacker_circumstance=1,
@@ -296,6 +588,26 @@ def test_opposed_metric_matrices_apply_circumstances() -> None:
         SkillRank.TWO,
         attacker_circumstance=1,
         defender_circumstance=0,
+    )
+
+    assert win_matrix[1, 1] == pytest.approx(float(summary.probability_attacker_win))
+    assert margin_matrix[1, 1] == pytest.approx(float(summary.expected_positive_margin))
+
+
+def test_opposed_metric_matrices_apply_edge_hindrance_and_circumstances() -> None:
+    _pools, win_matrix, margin_matrix = opposed_metric_matrices(
+        attacker_circumstance=1,
+        defender_circumstance=-1,
+        attacker_edge_hindrance=1,
+        defender_edge_hindrance=-1,
+    )
+    summary = opposed_roll(
+        SkillRank.TWO,
+        SkillRank.TWO,
+        attacker_circumstance=1,
+        defender_circumstance=-1,
+        attacker_edge_hindrance=1,
+        defender_edge_hindrance=-1,
     )
 
     assert win_matrix[1, 1] == pytest.approx(float(summary.probability_attacker_win))
