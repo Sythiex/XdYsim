@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from xdysim.engine import all_dice_pools, distribution_for_rank_with_edge, static_check
 from xdysim.engine.models import SkillRank
+from xdysim.gui._result_distribution_chart import _ResultDistributionChart
 from xdysim.gui.edge_hindrance_spin_box import EdgeHindranceSpinBox
 
 
@@ -76,10 +77,19 @@ class StaticChecksTab(QWidget):
         self.distribution_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.distribution_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
+        self.distribution_chart = _ResultDistributionChart()
+
+        table_layout = QVBoxLayout()
+        table_layout.addWidget(QLabel("Exact Values"))
+        table_layout.addWidget(self.distribution_table)
+
+        distribution_layout = QHBoxLayout()
+        distribution_layout.addWidget(self.distribution_chart, stretch=3)
+        distribution_layout.addLayout(table_layout, stretch=1)
+
         container = QVBoxLayout()
         container.addLayout(header_layout)
-        container.addWidget(QLabel("Exact result distribution"))
-        container.addWidget(self.distribution_table)
+        container.addLayout(distribution_layout, stretch=1)
         self.setLayout(container)
 
         self.rank_combo.currentIndexChanged.connect(self.refresh)
@@ -109,6 +119,7 @@ class StaticChecksTab(QWidget):
         self.gt_label.setText(_format_probability(summary.probability_gt))
         self.eq_label.setText(_format_probability(summary.probability_eq))
         self.lte_label.setText(_format_probability(summary.probability_lte))
+        self.distribution_chart.set_distribution(distribution)
 
         ordered_rows = distribution.ordered_pmf
         self.distribution_table.setRowCount(len(ordered_rows))

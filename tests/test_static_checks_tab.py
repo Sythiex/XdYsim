@@ -4,7 +4,11 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QFormLayout, QLabel
+import pytest
+from PySide6.QtCore import QPoint
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QFormLayout, QFrame, QLabel
 
 from xdysim.gui.edge_hindrance_spin_box import EdgeHindranceSpinBox
 from xdysim.gui.static_checks_tab import StaticChecksTab
@@ -43,6 +47,11 @@ def _field_row(layout: QFormLayout, field: object) -> int:
             return row
     msg = "field is not present in form layout"
     raise AssertionError(msg)
+
+
+def _chart_values(tab: StaticChecksTab) -> list[float]:
+    bar_set = tab.distribution_chart.bar_set
+    return [bar_set.at(index) for index in range(bar_set.count())]
 
 
 def test_static_checks_tab_shows_result_lte_dc_row() -> None:
@@ -106,6 +115,173 @@ def test_edge_hindrance_spinner_formats_values() -> None:
     assert spinner.textFromValue(2) == "+2 Edge"
     assert spinner.textFromValue(-1) == "-1 Hindrance"
     assert spinner.textFromValue(-2) == "-2 Hindrance"
+
+
+def test_static_checks_tab_chart_shows_default_distribution() -> None:
+    _application()
+    tab = StaticChecksTab()
+
+    try:
+        assert tab.distribution_chart.chart().title() == "Exact Result Distribution"
+        assert tab.distribution_chart.x_axis.titleText() == "Result"
+        assert tab.distribution_chart.x_axis.categories() == ["1", "2", "3", "4"]
+        assert tab.distribution_chart.y_axis.titleText() == "Probability"
+        assert tab.distribution_chart.y_axis.min() == 0.0
+        assert tab.distribution_chart.y_axis.tickCount() - 1 >= 3
+        assert _chart_values(tab) == pytest.approx([25.0, 25.0, 25.0, 25.0])
+        assert not tab.distribution_chart.chart().legend().isVisible()
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_uses_active_palette() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        palette = tab.distribution_chart.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#202124"))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor("#F1F3F4"))
+        palette.setColor(QPalette.ColorRole.Mid, QColor("#5F6368"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#8AB4F8"))
+        tab.distribution_chart.setPalette(palette)
+        app.processEvents()
+
+        assert not tab.distribution_chart.chart().isBackgroundVisible()
+        assert tab.distribution_chart.backgroundBrush().color() == QColor("#202124")
+        assert tab.distribution_chart.chart().titleBrush().color() == QColor("#F1F3F4")
+        assert tab.distribution_chart.x_axis.labelsBrush().color() == QColor("#F1F3F4")
+        assert tab.distribution_chart.y_axis.labelsBrush().color() == QColor("#F1F3F4")
+        assert tab.distribution_chart.x_axis.linePen().color() == QColor("#5F6368")
+        grid_color = tab.distribution_chart.x_axis.gridLinePen().color()
+        assert grid_color.name() == "#f1f3f4"
+        assert grid_color.alpha() == 72
+        assert tab.distribution_chart.bar_set.color() == QColor("#8AB4F8")
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_has_at_least_three_y_axis_subdivisions() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        for rank_index in range(tab.rank_combo.count()):
+            tab.rank_combo.setCurrentIndex(rank_index)
+            for edge_hindrance in range(-2, 3):
+                tab.edge_hindrance_spin.setValue(edge_hindrance)
+                app.processEvents()
+
+                assert tab.distribution_chart.y_axis.tickCount() - 1 >= 3
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_shows_probability_tooltip_for_hovered_bar() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        tab.resize(1320, 850)
+        tab.show()
+        app.processEvents()
+        chart = tab.distribution_chart
+        plot_area = chart.chart().plotArea()
+        first_bar_x = plot_area.left() + plot_area.width() / 8
+        first_bar_top = (
+            plot_area.bottom()
+            - plot_area.height() * (25.0 / chart.y_axis.max())
+        )
+        first_position = QPoint(
+            round(first_bar_x),
+            round((first_bar_top + plot_area.bottom()) / 2),
+        )
+        second_position = first_position + QPoint(8, 20)
+
+        QTest.mouseMove(chart.viewport(), first_position)
+        app.processEvents()
+        tooltip_label = chart._tooltip_label
+        assert tooltip_label.text() == "25.0000%"
+        assert tooltip_label.isVisible()
+        assert tooltip_label.frameShape() == QFrame.Shape.NoFrame
+        assert tooltip_label.margin() == 2
+        assert tooltip_label.geometry().bottom() < first_position.y()
+        first_tooltip_position = tooltip_label.pos()
+
+        QTest.mouseMove(chart.viewport(), second_position)
+        app.processEvents()
+        assert tooltip_label.isVisible()
+        assert tooltip_label.pos() != first_tooltip_position
+        assert tooltip_label.geometry().bottom() < second_position.y()
+
+        QTest.mouseMove(
+            chart.viewport(),
+            QPoint(round(first_bar_x), round(plot_area.top() + 5)),
+        )
+        app.processEvents()
+        assert tooltip_label.isHidden()
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_starts_at_one_after_positive_circumstance() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        tab.circumstance_spin.setValue(1)
+        app.processEvents()
+
+        assert tab.distribution_chart.x_axis.categories() == ["1", "2", "3", "4", "5"]
+        assert _chart_values(tab) == pytest.approx([0.0, 25.0, 25.0, 25.0, 25.0])
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_extends_below_one_for_negative_results() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        tab.circumstance_spin.setValue(-2)
+        app.processEvents()
+
+        assert tab.distribution_chart.x_axis.categories() == ["-1", "0", "1", "2"]
+        values = _chart_values(tab)
+        assert values == pytest.approx([25.0, 25.0, 25.0, 25.0])
+        assert sum(values) == pytest.approx(100.0)
+    finally:
+        tab.close()
+
+
+def test_static_checks_tab_chart_updates_for_edge_and_largest_range() -> None:
+    app = _application()
+    tab = StaticChecksTab()
+
+    try:
+        tab.edge_hindrance_spin.setValue(1)
+        tab.circumstance_spin.setValue(1)
+        app.processEvents()
+
+        assert tab.distribution_chart.x_axis.categories() == ["1", "2", "3", "4", "5"]
+        assert _chart_values(tab) == pytest.approx([0.0, 6.25, 18.75, 31.25, 43.75])
+
+        tab.rank_combo.setCurrentIndex(5)
+        tab.circumstance_spin.setValue(40)
+        app.processEvents()
+
+        categories = tab.distribution_chart.x_axis.categories()
+        values = _chart_values(tab)
+        assert len(categories) == 65
+        assert categories[0] == "1"
+        assert categories[-1] == "65"
+        assert values[:40] == pytest.approx([0.0] * 40)
+        assert sum(values) == pytest.approx(100.0)
+        assert tab.distribution_chart.x_axis.labelsAngle() == -90.0
+        assert tab.distribution_chart.y_axis.min() == 0.0
+        assert tab.distribution_chart.y_axis.max() >= max(values)
+    finally:
+        tab.close()
 
 
 def test_static_checks_tab_applies_circumstance_to_summary_and_distribution() -> None:

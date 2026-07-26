@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-07-25
+
+### Added
+
+- Added a roll distribution bar chart in the Static Checks tab.
+
 ## [0.3.0] - 2026-07-01
 
 ### Added
